@@ -1,82 +1,83 @@
-import streamlit as st # web development
-from matplotlib import pyplot as plt
-import numpy as np # np mean, np random 
-import pandas as pd # read csv, df manipulation
-import time # to simulate a real time data, time loop 
-import plotly.express as px # interactive charts 
+import streamlit as st
+import datetime
+import pandas as pd
+
+import yfinance as yf
+from fbprophet import Prophet
+from fbprophet.plot import plot_plotly
+from plotly import graph_objs as go
+
+# App title
+st.markdown('''
+# Stock Price Dashboard
+
+- developped by [`@happy-jihye`](https://github.com/happy-jihye)
+- To run this app, you must install the `yfinance, fbprophet, plotly` package.
+---
+''')
 
 
-# read csv from a github repo
-df = pd.read_csv("https://raw.githubusercontent.com/Lexie88rus/bank-marketing-analysis/master/bank.csv")
+# Sidebar
+start_date = st.sidebar.date_input("Start date", datetime.date(2021, 1, 1))
+end_date = st.sidebar.date_input("End date", datetime.date.today())
+tickerSymbol = st.sidebar.text_input('Ticker Symbol', '035420.KS')
+st.sidebar.markdown('Search for stock ticker symbol for any company in [Yahoo Finance](https://finance.yahoo.com/)')
+
+tickerData = yf.Ticker(tickerSymbol)
+tickerDf = tickerData.history(start=start_date, end=end_date)
+ticker_data = yf.download(tickerSymbol, start_date, end_date)
+ticker_data.reset_index(inplace=True)
+
+# Ticker information
+string_logo = '<img src=%s width = 25>' % tickerData.info['logo_url']
+string_name = tickerData.info['longName']
+st.markdown(f'## {string_logo}   {string_name}', unsafe_allow_html=True)
+
+string_summary = tickerData.info['longBusinessSummary']
+st.info(string_summary)
+
+st.subheader('Raw data')
+days = st.slider('Days', 1, 10, value=5)
+st.dataframe(tickerDf.tail(days))
+
+st.subheader(f'Stock Price Ticker')
+st.line_chart(tickerDf.Close)
+
+plotly = st.expander('plotly')
+
+with plotly:
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=ticker_data['Date'], y=ticker_data['Open'], name="stock_open"))
+    fig.add_trace(go.Scatter(x=ticker_data['Date'], y=ticker_data['Close'], name="stock_close"))
+    fig.layout.update(title_text='Time Series data with Rangeslider', xaxis_rangeslider_visible=True)
+    st.plotly_chart(fig)
 
 
-st.set_page_config(
-    page_title = 'Real-Time Data Science Dashboard',
-    page_icon = '✅',
-    layout = 'wide'
-)
-
-# dashboard title
-
-st.title("Real-Time / Live Data Science Dashboard")
-
-# top-level filters 
-
-job_filter = st.selectbox("Select the Job", pd.unique(df['job']))
+st.subheader(f'Stock Volume Ticker')
+st.line_chart(tickerDf.Volume)
 
 
-# creating a single-element container.
-placeholder = st.empty()
+# Predicting Stock Prices Using Facebook’s Prophet Mode
+st.subheader('Predicting Stock Prices Using Facebook’s Prophet Mode')
 
-# dataframe filter 
+n_days = st.slider('Days of prediction:', 1, 365, value=31)
 
-df = df[df['job']==job_filter]
+df_train = ticker_data[['Date','Close']]
+df_train = df_train.rename(columns={"Date": "ds", "Close": "y"})
 
-# near real-time / live feed simulation 
+m = Prophet()
+m.fit(df_train)
+future = m.make_future_dataframe(periods=n_days)
+forecast = m.predict(future)
 
-for seconds in range(200):
-#while True: 
+# Show and plot forecast
+st.subheader('Forecast data')
+st.write(forecast.tail())
     
-    df['age_new'] = df['age'] * np.random.choice(range(1,5))
-    df['balance_new'] = df['balance'] * np.random.choice(range(1,5))
+st.write(f'Forecast plot for {n_days} days')
+fig1 = plot_plotly(m, forecast)
+st.plotly_chart(fig1)
 
-    # creating KPIs 
-    avg_age = np.mean(df['age_new']) 
-
-    count_married = int(df[(df["marital"]=='married')]['marital'].count() + np.random.choice(range(1,30)))
-    
-    balance = np.mean(df['balance_new'])
-
-    with placeholder.container():
-        # create three columns
-        kpi1, kpi2, kpi3 = st.columns(3)
-
-        # fill in those three columns with respective metrics or KPIs 
-        kpi1.metric(label="Age ⏳", value=round(avg_age), delta= round(avg_age) - 10)
-        kpi2.metric(label="Married Count 💍", value= int(count_married), delta= - 10 + count_married)
-        kpi3.metric(label="A/C Balance ＄", value= f"$ {round(balance,2)} ", delta= - round(balance/count_married) * 100)
-
-        # create two columns for charts 
-
-        fig_col1, fig_col2 = st.columns(2)
-        with fig_col1:
-            st.markdown("### First Chart")
-            fig = px.density_heatmap(data_frame=df, y = 'age_new', x = 'marital')
-            st.write(fig)
-        with fig_col2:
-            st.markdown("### Second Chart")
-            fig2 = px.histogram(data_frame = df, x = 'age_new')
-            st.write(fig2)
-        fig=plt.figure()
-        ax=fig.add_axes([0,0,1,1])
-        ax.axis('equal')
-        langs=['married', 'balance', 'A/C Balance ＄', 'age_new']
-        students=[23,17,35,29,12]
-        ax.pie(students, labels=langs,autopct='%1.2f%%')
-        plt.show()    
-        st.markdown("### Detailed Data View")
-        st.dataframe(df)
-        time.sleep(1)
-    #placeholder.empty()
-
-
+st.write("Forecast components")
+fig2 = m.plot_components(forecast)
+st.write(fig2)
